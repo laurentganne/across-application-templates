@@ -1,0 +1,61 @@
+- name: Prequisites
+  hosts: all
+  strategy: free
+  tasks:
+    - name: Check if HyperQueue is already installed
+      stat:
+        path: "{{ ansible_env.HOME }}/hq"
+      register: hqpath
+
+    - meta: end_play
+      when: hqpath.stat.exists
+
+    - name: Ubuntu - install unzip (acl needed by Ansible to become an unprivileged user)
+      apt:
+        name:
+          - acl
+          - unzip
+        state: present
+        update_cache: yes
+      register: apt_res
+      retries: 3
+      become: true
+      become_method: sudo
+      until: apt_res is success
+      when: ansible_distribution == 'Ubuntu'
+    - name: RedHat - install unzip
+      yum:
+        name:
+          - unzip
+        state: present
+        update_cache: yes
+      become: true
+      become_method: sudo
+      when: ansible_os_family == 'RedHat'
+    - name: Debian - install unzip
+      apt:
+        name:
+          - unzip
+        state: present
+        update_cache: yes
+      become: true
+      become_method: sudo
+      when: ansible_os_family == 'Debian'
+- name: Download and install HyperQueue
+  hosts: all
+  strategy: free
+  tasks:
+    - name: Download bundle
+      get_url:
+        url: "{{ DONWLOAD_URL }}"
+        dest: "hq.tgz"
+    - name: Extract archive
+      unarchive:
+        src: "hq.tgz"
+        dest: "{{ ansible_env.HOME }}"
+        mode: 0777
+        remote_src: yes
+    - name: Remove archive
+      file:
+        path: "hq.tgz"
+        state: absent

@@ -1,0 +1,37 @@
+tosca_definitions_version: alien_dsl_3_0_0
+
+metadata:
+  template_name: org.across.orchestrator.components.hyperqueue
+  template_version: 0.1.0-SNAPSHOT
+  template_author: lexis
+
+description: HyperQueue server and workers
+
+imports:
+  - yorc-types:1.1.0
+node_types:
+  org.across.orchestrator.components.hyperqueue.HyperQueue:
+    derived_from: tosca.nodes.SoftwareComponent
+    description: >
+      HyperQueue abstract component
+    abstract: true
+    properties:
+      download_url:
+        type: string
+        default: https://github.com/It4innovations/hyperqueue/releases/download/v0.7.0/hq-v0.7.0-linux-x64.tar.gz
+    interfaces:
+      Standard:
+        create:
+          inputs:
+            DOWNLOAD_URL: {get_property: [SELF, download_url]}
+          implementation: playbooks/install_hyperqueue.yaml
+  org.across.orchestrator.components.hyperqueue.Server:
+    derived_from: tosca.nodes.SoftwareComponent
+    description: >
+      HyperQueue server
+    interfaces:
+      Standard:
+        start:
+          implementation: playbooks/start_server.yaml
+  # TODO: add an HyperQueue client, requiring to be associated to an HyperQueue server
+  

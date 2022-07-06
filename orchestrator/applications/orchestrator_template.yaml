@@ -1,0 +1,255 @@
+tosca_definitions_version: alien_dsl_3_0_0
+
+metadata:
+  template_name: org.across.common.OrchestratorTemplate
+  template_version: 0.1.0-SNAPSHOT
+  template_author: across
+
+description: "ACROSS orchestrator template"
+
+#
+# Imports from Alien4Cloud catalog providing definition of data types and node types
+#
+imports:
+  - tosca-normative-types:1.0.0-ALIEN20
+  - yorc-openstack-types:3.1.0
+  - docker-types:3.0.0
+  - org.lexis.common.dynamic-orchestration-types:1.0.3
+  - org.across.orchestrator.components.streamflow:0.1.0-SNAPSHOT
+  - org.across.orchestrator.components.hyperqueue:0.1.0-SNAPSHOT
+
+topology_template:
+  #
+  # Input parameters.
+  # The only required parameter is the OpenID Connect token.
+  # Other parameters have default values.
+  #
+  # Naming convention expected by LEXIS Portal:
+  # - input parameters used in the pre-processing phase start with preprocessing_
+  # - input parameters uded in the HPC computation phase start with computation_
+  # - input parameters used in the postprocessing phase start with postprocessing_
+  # - Paths of DDI dataset are expect to follow the expression <phase>_dataset_*
+  #   for example: preprocessing_dataset_path_input_path
+  #
+  inputs:
+    token:
+      type: string
+      description: "OpenID Connect token"
+      required: true
+    project_id:
+      type: string
+      description: "LEXIS project identifier"
+      required: true
+
+  #
+  # Components instantiating the types imported, and using the input values above
+  # in properties definitions.
+  # Relationships between these components describing which requirement of a commponent
+  # is fulfilled by which capability of another component
+  #
+  node_templates:
+    # Validation of the token provided in input
+    # Exchanging this token to have an access and refresh tokens
+    # for any component needing it in the workflow
+    ValidateExchangeToken:
+      type: org.lexis.common.dynamic.orchestration.nodes.ValidateAndExchangeToken
+      properties:
+        token: {get_input: token}
+        project_id: { get_input: project_id }
+
+    # Find the best cloud location depending on the input dataset and needed cloud resources
+    FindCloudLocationJob:
+      type: org.lexis.common.dynamic.orchestration.nodes.SetLocationsJob
+      metadata:
+        task: dynamic_orchestration
+      properties:
+        token: { get_input: token }
+        project_id: { get_input: project_id }
+      requirements:
+        - CloudResourceVM:
+            type_requirement: cloud_instance
+            node: VMStreamFlow
+            capability: tosca.capabilities.OperatingSystem
+            relationship: org.lexis.common.dynamic.orchestration.relationships.CloudResource
+    PublicNet:
+      type: yorc.nodes.openstack.FloatingIP
+    VMStreamFlow:
+      type: tosca.nodes.Compute
+      requirements:
+        - networkNetworkConnection:
+            type_requirement: network
+            node: PublicNet
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+      capabilities:
+        host:
+          properties:
+            num_cpus: 4
+            disk_size: "40 GB"
+        os:
+          properties:
+            type: linux
+            distribution: ubuntu
+        scalable:
+          properties:
+            min_instances: 1
+            max_instances: 1
+            default_instances: 1
+        endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+    StreamFlow:
+      type: org.across.orchestrator.components.streamflow.StreamFlow
+      # Metadata used by LEXIS Portal to identify a preprocessing workflow step
+      metadata:
+        task: computation
+      requirements:
+        - hostedOnComputeHost:
+            type_requirement: host
+            node: VMStreamFlow
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+    HyperQueueServer:
+      type: org.across.orchestrator.components.hyperqueue.Server
+      # Metadata used by LEXIS Portal to identify a preprocessing workflow step
+      metadata:
+        task: computation
+      requirements:
+        - hostedOnComputeHost:
+            type_requirement: host
+            node: VMStreamFlow
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+    # At the end of the workflow, the Cloud instance token should be refreshed
+    # before attempting to uninstall the compute instance
+    RefreshVMToken:
+      type: org.lexis.common.dynamic.orchestration.nodes.RefreshTargetTokens
+      requirements:
+        - target:
+            type_requirement: target
+            node: VMStreamFlow
+            capability: tosca.capabilities.Node
+            relationship: tosca.relationships.DependsOn
+  outputs:
+    StreamFlow_ip_address:
+      value: { get_attribute: [ VMStreamFlow, public_address ] }
+  workflows:
+    # At deployment time, validating the input token and exchanging it
+    # to get an access/refresh token for the orchestrator
+    install:
+      steps:
+        ValidateExchangeToken_start:
+          target: ValidateExchangeToken
+          activities:
+            - call_operation: Standard.start
+          on_success:
+            - ValidateExchangeToken_started
+        ValidateExchangeToken_started:
+          target: ValidateExchangeToken
+          activities:
+            - set_state: started
+    uninstall:
+      steps:
+        RefreshVMToken_start:
+          target: RefreshVMToken
+          activities:
+            - call_operation: Standard.start
+          on_success:
+            - RefreshVMToken_started
+        RefreshVMToken_started:
+          target: RefreshVMToken
+          activities:
+            - set_state: started
+          on_success:
+            - Compute_uninstall
+        Compute_uninstall:
+          target: VMStreamFlow
+          activities:
+            - delegate: uninstall
+          on_success:
+            - Network_uninstall
+        Network_uninstall:
+          target: PublicNet
+          activities:
+            - delegate: uninstall
+    Run:
+      steps:
+        # Submit the computation to find the best location from these inputs
+        FindCloudLocationJob_submit:
+          target: FindCloudLocationJob
+          activities:
+            - call_operation: tosca.interfaces.node.lifecycle.Runnable.submit
+          on_success:
+            - FindCloudLocationJob_run
+        FindCloudLocationJob_run:
+          target: FindCloudLocationJob
+          activities:
+            - call_operation: tosca.interfaces.node.lifecycle.Runnable.run
+          on_success:
+            - FindCloudLocationJob_executed
+        FindCloudLocationJob_executed:
+          target: FindCloudLocationJob
+          activities:
+            - set_state: executed
+          on_success:
+            - Network_install
+        # Get a floating IP address for the Cloud Compute instance
+        Network_install:
+          target: PublicNet
+          activities:
+            - delegate: install
+          on_success:
+            - Compute_install
+        Compute_install:
+          target: VMStreamFlow
+          activities:
+            - delegate: install
+          on_success:
+            - StreamFlow_create
+        StreamFlow_create:
+          target: StreamFlow
+          activities:
+            - call_operation: Standard.create
+          on_success:
+            - StreamFlow_created
+        StreamFlow_created:
+          target: StreamFlow
+          activities:
+            - set_state: created
+          on_success:
+            - StreamFlow_start
+        StreamFlow_start:
+          target: StreamFlow
+          activities:
+            - call_operation: Standard.start
+          on_success:
+            - StreamFlow_started
+        StreamFlow_started:
+          target: StreamFlow
+          activities:
+            - set_state: started
+        HyperQueueServer_create:
+          target: HyperQueueServer
+          activities:
+            - call_operation: Standard.create
+          on_success:
+            - HyperQueueServer_created
+        HyperQueueServer_created:
+          target: HyperQueueServer
+          activities:
+            - set_state: created
+          on_success:
+            - HyperQueueServer_start
+        HyperQueueServer_start:
+          target: HyperQueueServer
+          activities:
+            - call_operation: Standard.start
+          on_success:
+            - HyperQueueServer_started
+        HyperQueueServer_started:
+          target: HyperQueueServer
+          activities:
+            - set_state: started

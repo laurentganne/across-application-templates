@@ -1,0 +1,22 @@
+tosca_definitions_version: alien_dsl_3_0_0
+
+metadata:
+  template_name: org.across.orchestrator.components.streamflow
+  template_version: 0.1.0-SNAPSHOT
+  template_author: lexis
+
+description: StreamFlow
+
+imports:
+  - yorc-types:1.1.0
+node_types:
+  org.across.orchestrator.components.streamflow.StreamFlow:
+    derived_from: tosca.nodes.SoftwareComponent
+    description: >
+      StreamFlow component
+    interfaces:
+      Standard:
+        create:
+          implementation: playbooks/install_streamflow.yaml
+        start:
+          implementation: playbooks/noop.yaml
