@@ -1,0 +1,11 @@
+- name: Start HyperQueue worker
+  hosts: all
+  strategy: free
+  tasks:
+    - name: Start HyperQueue worker
+      shell: "nohup {{ ansible_env.HOME }}/hq worker start &"
+    - name: Copy file with owner and permissions
+      ansible.builtin.copy:
+        src: "{{ hyperqueue_config_file }}"
+        dest: "{{ ansible_env.HOME }}/.hq-server/hq-current/access.json"
+        mode: '0600'

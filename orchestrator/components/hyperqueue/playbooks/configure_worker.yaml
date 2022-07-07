@@ -1,0 +1,9 @@
+- name: configure HyperQueue worker
+  hosts: all
+  strategy: free
+  tasks:
+    - name: Create HyperQueue directory if it does not exist
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.hq-server/hq-current"
+        state: directory
+        mode: '0755'

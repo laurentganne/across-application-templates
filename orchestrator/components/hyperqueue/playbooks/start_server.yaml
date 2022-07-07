@@ -1,4 +1,4 @@
-- name: Start HyperQueue
+- name: Start HyperQueue server
   hosts: all
   strategy: free
   tasks:
@@ -9,6 +9,4 @@
         timeout: 120
         delay: 5
         sleep: 5
-        path: {{ ansible_env.HOME }}/.hq-server/hq-current/access.json
-    - name: Temporarily starting a HyperQueue worker
-      shell: "nohup {{ ansible_env.HOME }}/hq worker start &"
+        path: "{{ ansible_env.HOME }}/.hq-server/hq-current/access.json"

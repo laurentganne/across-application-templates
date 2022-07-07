@@ -1,0 +1,57 @@
+tosca_definitions_version: alien_dsl_3_0_0
+
+metadata:
+  template_name: org.across.wp4.cloudInstance
+  template_version: 0.1.0-SNAPSHOT
+  template_author: admin
+
+description: ""
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN20
+
+topology_template:
+  input_artifacts:
+    hyperqueue_config:
+      type: org.across.orchestrator.components.hyperqueue.ConfigFile
+
+  node_templates:
+    VMHyperqueueWorker:
+      type: tosca.nodes.Compute
+      requirements:
+        - networkNetworkConnection:
+            type_requirement: network
+            node: Network
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+      capabilities:
+        scalable:
+          properties:
+            min_instances: 1
+            max_instances: 1
+            default_instances: 1
+        endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+    Network:
+      type: tosca.nodes.Network
+      properties:
+        ip_version: 4
+    HyperQueueWorker:
+      type: org.across.orchestrator.components.hyperqueue.Worker
+      requirements:
+        - hostedOnComputeHost:
+            type_requirement: host
+            node: VMHyperqueueWorker
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      artifacts:
+        hyperqueue_config_file:
+          type: org.across.orchestrator.components.hyperqueue.ConfigFile
+          file: { get_input_artifact: hyperqueue_config }
+  outputs:
+    worker_ip_address:
+      value: { get_attribute: [ VMHyperqueueWorker, public_address ] }

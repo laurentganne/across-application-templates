@@ -9,6 +9,11 @@ description: HyperQueue server and workers
 
 imports:
   - yorc-types:1.1.0
+artifact_types:
+  org.across.orchestrator.components.hyperqueue.ConfigFile:
+    derived_from: tosca.artifacts.Root
+    description: Hyperqueue configuration file
+    file_ext: [ json ]
 node_types:
   org.across.orchestrator.components.hyperqueue.HyperQueue:
     derived_from: tosca.nodes.SoftwareComponent
@@ -26,12 +31,23 @@ node_types:
             DOWNLOAD_URL: {get_property: [SELF, download_url]}
           implementation: playbooks/install_hyperqueue.yaml
   org.across.orchestrator.components.hyperqueue.Server:
-    derived_from: tosca.nodes.SoftwareComponent
+    derived_from: org.across.orchestrator.components.hyperqueue.HyperQueue
     description: >
       HyperQueue server
     interfaces:
       Standard:
         start:
           implementation: playbooks/start_server.yaml
-  # TODO: add an HyperQueue client, requiring to be associated to an HyperQueue server
-  
+  org.across.orchestrator.components.hyperqueue.Worker:
+    derived_from: org.across.orchestrator.components.hyperqueue.HyperQueue
+    description: >
+      HyperQueue worker
+    interfaces:
+      Standard:
+        configure:
+          implementation: playbooks/configure_worker.yaml
+        start:
+          implementation: playbooks/start_worker.yaml
+    artifacts:
+      - hyperqueue_config_file:
+          type: org.across.orchestrator.components.hyperqueue.ConfigFile
